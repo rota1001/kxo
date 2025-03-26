@@ -468,7 +468,7 @@ static int __init kxo_init(void)
         goto error_region;
     }
 
-    /* Create a class structure */
+        /* Create a class structure */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 4, 0)
     kxo_class = class_create(THIS_MODULE, DEV_NAME);
 #else
