@@ -81,13 +81,20 @@ static void listen_keyboard_handler(void)
     close(attr_fd);
 }
 
-static int draw_board(const char *table)
+static int draw_board(const unsigned int table)
 {
     int k = 0;
     puts("\n");
     for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < (BOARD_SIZE << 1) - 1 && k < N_GRIDS; j++)
-            putchar(j & 1 ? '|' : table[k++]);
+        for (int j = 0; j < (BOARD_SIZE << 1) - 1 && k < N_GRIDS; j++) {
+            unsigned int bit = table >> (k << 1);
+            if (j & 1)
+                putchar('|');
+            else {
+                putchar(!(bit & 2) ? ' ' : (bit & 1 ? 'O' : 'X'));
+                k++;
+            }
+        }
 
         putchar('\n');
 
@@ -108,7 +115,7 @@ int main(int argc, char *argv[])
     int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
 
-    char display_buf[N_GRIDS];
+    unsigned int display_buf;
 
     fd_set readset;
     int device_fd = open(XO_DEVICE_FILE, O_RDONLY);
@@ -133,7 +140,7 @@ int main(int argc, char *argv[])
         } else if (read_attr && FD_ISSET(device_fd, &readset)) {
             FD_CLR(device_fd, &readset);
             printf("\033[H\033[J"); /* ASCII escape code to clear the screen */
-            read(device_fd, display_buf, N_GRIDS);
+            read(device_fd, &display_buf, sizeof(display_buf));
             draw_board(display_buf);
         }
     }

@@ -78,7 +78,7 @@ static int major;
 static struct class *kxo_class;
 static struct cdev kxo_cdev;
 
-static char draw_buffer[N_GRIDS];
+static unsigned int draw_buffer;
 
 /* Data are stored into a kfifo buffer before passing them to the userspace */
 static DECLARE_KFIFO_PTR(rx_fifo, unsigned char);
@@ -95,7 +95,8 @@ static DECLARE_WAIT_QUEUE_HEAD(rx_wait);
 /* Insert the whole chess board into the kfifo buffer */
 static void produce_board(void)
 {
-    unsigned int len = kfifo_in(&rx_fifo, draw_buffer, sizeof(draw_buffer));
+    unsigned int len = kfifo_in(&rx_fifo, (const unsigned char *) &draw_buffer,
+                                sizeof(draw_buffer));
     if (unlikely(len < sizeof(draw_buffer)) && printk_ratelimit())
         pr_warn("%s: %zu bytes dropped\n", __func__, sizeof(draw_buffer) - len);
 
@@ -117,13 +118,24 @@ static struct circ_buf fast_buf;
 
 static char table[N_GRIDS];
 
-/* Draw the board into draw_buffer */
+/**
+ * Draw the board into draw_buffer
+ * Since the ascii of ' ', 'O', 'X' are the following respectively:
+ * 'O': 0b1001111
+ * 'X': 0b1011000
+ * ' ': 0b0100000
+ * We can use (table[i] >> 2) & 3 to represent the three states above with
+ * two bits each grid.
+ */
 static int draw_board(char *table)
 {
     int i = 0, k = 0;
+    draw_buffer = 0;
+    smp_wmb();
     while (i < N_GRIDS) {
-        draw_buffer[i++] = table[k++];
+        draw_buffer |= ((table[k++] >> 2) & 3) << (i << 1);
         smp_wmb();
+        i++;
     }
 
     return 0;
