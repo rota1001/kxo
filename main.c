@@ -8,6 +8,7 @@
 #include <linux/slab.h>
 #include <linux/sysfs.h>
 #include <linux/version.h>
+#include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 
 #include "game.h"
@@ -77,7 +78,7 @@ static int major;
 static struct class *kxo_class;
 static struct cdev kxo_cdev;
 
-static char draw_buffer[DRAWBUFFER_SIZE];
+static char draw_buffer[N_GRIDS];
 
 /* Data are stored into a kfifo buffer before passing them to the userspace */
 static DECLARE_KFIFO_PTR(rx_fifo, unsigned char);
@@ -120,26 +121,10 @@ static char table[N_GRIDS];
 static int draw_board(char *table)
 {
     int i = 0, k = 0;
-    draw_buffer[i++] = '\n';
-    smp_wmb();
-    draw_buffer[i++] = '\n';
-    smp_wmb();
-
-    while (i < DRAWBUFFER_SIZE) {
-        for (int j = 0; j < (BOARD_SIZE << 1) - 1 && k < N_GRIDS; j++) {
-            draw_buffer[i++] = j & 1 ? '|' : table[k++];
-            smp_wmb();
-        }
-        draw_buffer[i++] = '\n';
-        smp_wmb();
-        for (int j = 0; j < (BOARD_SIZE << 1) - 1; j++) {
-            draw_buffer[i++] = '-';
-            smp_wmb();
-        }
-        draw_buffer[i++] = '\n';
+    while (i < N_GRIDS) {
+        draw_buffer[i++] = table[k++];
         smp_wmb();
     }
-
 
     return 0;
 }
