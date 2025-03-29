@@ -419,6 +419,15 @@ static atomic_t open_cnt;
 static int kxo_open(struct inode *inode, struct file *filp)
 {
     pr_debug("kxo: %s\n", __func__);
+    write_lock(&attr_obj.lock);
+    if (attr_obj.end == '1') {
+        attr_obj.display = '1';
+        attr_obj.end = '0';
+        turn = 'O';
+        finish = 1;
+        memset(table, ' ', N_GRIDS);
+    }
+    write_unlock(&attr_obj.lock);
     if (atomic_inc_return(&open_cnt) == 1)
         mod_timer(&timer, jiffies + msecs_to_jiffies(delay));
     pr_info("openm current cnt: %d\n", atomic_read(&open_cnt));
