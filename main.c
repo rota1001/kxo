@@ -3,6 +3,7 @@
 #include <linux/cdev.h>
 #include <linux/circ_buf.h>
 #include <linux/interrupt.h>
+#include <linux/ioctl.h>
 #include <linux/kfifo.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -14,6 +15,7 @@
 #include "game.h"
 #include "mcts.h"
 #include "negamax.h"
+#include "record.h"
 
 MODULE_LICENSE("Dual MIT/GPL");
 MODULE_AUTHOR("National Cheng Kung University, Taiwan");
@@ -29,6 +31,9 @@ MODULE_DESCRIPTION("In-kernel Tic-Tac-Toe game engine");
 #define DEV_NAME "kxo"
 
 #define NR_KMLDRV 1
+
+#define IOCTL_READ_SIZE 0
+#define IOCTL_READ_LIST 1
 
 static int delay = 100; /* time (in ms) to generate an event */
 
@@ -210,8 +215,10 @@ static void ai_one_work_func(struct work_struct *w)
 
     smp_mb();
 
-    if (move != -1)
+    if (move != -1) {
         WRITE_ONCE(table[move], 'O');
+        record_board_update(move);
+    }
 
     WRITE_ONCE(turn, 'X');
     WRITE_ONCE(finish, 1);
@@ -244,8 +251,10 @@ static void ai_two_work_func(struct work_struct *w)
 
     smp_mb();
 
-    if (move != -1)
+    if (move != -1) {
         WRITE_ONCE(table[move], 'X');
+        record_board_update(move);
+    }
 
     WRITE_ONCE(turn, 'O');
     WRITE_ONCE(finish, 1);
@@ -341,6 +350,7 @@ static void timer_handler(struct timer_list *__timer)
         ai_game();
         mod_timer(&timer, jiffies + msecs_to_jiffies(delay));
     } else {
+        record_append_board();
         read_lock(&attr_obj.lock);
         if (attr_obj.display == '1') {
             int cpu = get_cpu();
@@ -362,6 +372,7 @@ static void timer_handler(struct timer_list *__timer)
         if (attr_obj.end == '0') {
             memset(table, ' ',
                    N_GRIDS); /* Reset the table so the game restart */
+            record_board_init();
             mod_timer(&timer, jiffies + msecs_to_jiffies(delay));
         }
 
@@ -421,6 +432,8 @@ static int kxo_open(struct inode *inode, struct file *filp)
     pr_debug("kxo: %s\n", __func__);
     write_lock(&attr_obj.lock);
     if (attr_obj.end == '1') {
+        record_init();
+        record_board_init();
         attr_obj.display = '1';
         attr_obj.end = '0';
         turn = 'O';
@@ -448,13 +461,47 @@ static int kxo_release(struct inode *inode, struct file *filp)
     return 0;
 }
 
-static const struct file_operations kxo_fops = {
-    .read = kxo_read,
-    .llseek = no_llseek,
-    .open = kxo_open,
-    .release = kxo_release,
-    .owner = THIS_MODULE,
-};
+/**
+ * kxo_ioctl - Get the size of board record or the specific board
+ * @cmd: the opcode
+ * @arg: the user buffer
+ *
+ * The lowest bit of cmd represent the operation number, which is
+ * IOCTL_READ_SIZE or IOCTL_READ_LIST. If it is read list mode,
+ * the 1st to 4th bit represent the index of the board user wants
+ * to get
+ *
+ * Return:
+ * It will return -ENOTTY if the mode is invalid
+ * If the mode is IOCTL_READ_SIZE, it will return the size of record
+ * queue. If the mode is IOCTL_READ_LIST, it will return the number of
+ * bytes it copies to the user.
+ */
+static long kxo_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
+{
+    int ret;
+    switch (cmd & 1) {
+    case IOCTL_READ_SIZE:
+        ret = record_get_size();
+        pr_info("kxo_ioctl: the size is %d\n", ret);
+        break;
+    case IOCTL_READ_LIST:
+        uint64_t record = record_get_board(cmd >> 1);
+        ret = copy_to_user((void *) arg, &record, 8);
+        pr_info("kxo_ioctl: read list\n");
+        break;
+    default:
+        ret = -ENOTTY;
+    }
+    return ret;
+}
+
+static const struct file_operations kxo_fops = {.read = kxo_read,
+                                                .llseek = no_llseek,
+                                                .open = kxo_open,
+                                                .release = kxo_release,
+                                                .owner = THIS_MODULE,
+                                                .unlocked_ioctl = kxo_ioctl};
 
 static int __init kxo_init(void)
 {
@@ -521,6 +568,8 @@ static int __init kxo_init(void)
 
     negamax_init();
     mcts_init();
+    record_init();
+    record_board_init();
     memset(table, ' ', N_GRIDS);
     turn = 'O';
     finish = 1;

@@ -1,9 +1,11 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
@@ -13,6 +15,9 @@
 #define XO_STATUS_FILE "/sys/module/kxo/initstate"
 #define XO_DEVICE_FILE "/dev/kxo"
 #define XO_DEVICE_ATTR_FILE "/sys/class/kxo/kxo/kxo_state"
+
+#define IOCTL_READ_SIZE 0
+#define IOCTL_READ_LIST 1
 
 static bool status_check(void)
 {
@@ -107,6 +112,45 @@ static int draw_board(const unsigned int table)
     return 0;
 }
 
+void print_record(uint64_t record)
+{
+    uint64_t record_size = record;
+    record_size ^= (record_size >> 4);
+    record_size ^= (record_size >> 8);
+    record_size ^= (record_size >> 16);
+    record_size ^= (record_size >> 32);
+    record_size &= 0xf;
+    if (!record_size)
+        record_size = 16;
+    record_size <<= 2;
+    printf("Moves: ");
+    for (int i = 0; i < record_size; i += 4) {
+        unsigned int move = (record >> i) & 15;
+        printf("%c%u", 'A' + (move >> 2), move & 3);
+        if (i != record_size - 4)
+            printf(" -> ");
+    }
+    puts("");
+}
+
+void show_record(int device_fd)
+{
+    int size = ioctl(device_fd, IOCTL_READ_SIZE, 0);
+    if (size < 0) {
+        puts("Read board record fail");
+        return;
+    }
+    for (int i = 0; i < size; i++) {
+        uint64_t record;
+        if (ioctl(device_fd, (((unsigned) i) << 1) | IOCTL_READ_LIST,
+                  &record)) {
+            puts("Read board record fail");
+            return;
+        }
+        print_record(record);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     if (!status_check())
@@ -147,6 +191,9 @@ int main(int argc, char *argv[])
     }
 
     raw_mode_disable();
+
+    show_record(device_fd);
+
     fcntl(STDIN_FILENO, F_SETFL, flags);
 
     close(device_fd);
