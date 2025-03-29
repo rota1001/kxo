@@ -58,22 +58,22 @@ static void listen_keyboard_handler(void)
     char input;
 
     if (read(STDIN_FILENO, &input, 1) == 1) {
-        char buf[20];
+        char buf;
         switch (input) {
         case 16: /* Ctrl-P */
-            read(attr_fd, buf, 6);
-            buf[0] = (buf[0] - '0') ? '0' : '1';
+            read(attr_fd, &buf, 1);
+            buf ^= 1;
             read_attr ^= 1;
-            write(attr_fd, buf, 6);
+            write(attr_fd, &buf, 1);
             if (!read_attr)
                 printf("Stopping to display the chess board...\n");
             break;
         case 17: /* Ctrl-Q */
-            read(attr_fd, buf, 6);
-            buf[4] = '1';
+            read(attr_fd, &buf, 1);
+            buf |= 4;
             read_attr = false;
             end_attr = true;
-            write(attr_fd, buf, 6);
+            write(attr_fd, &buf, 1);
             printf("Stopping the kernel space tic-tac-toe game...\n");
             break;
         }

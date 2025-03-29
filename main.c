@@ -48,8 +48,9 @@ static ssize_t kxo_state_show(struct device *dev,
                               char *buf)
 {
     read_lock(&attr_obj.lock);
-    int ret = snprintf(buf, 6, "%c %c %c\n", attr_obj.display, attr_obj.resume,
-                       attr_obj.end);
+    int ret = snprintf(buf, 1, "%c",
+                       (attr_obj.display & 1) | ((attr_obj.resume & 1) << 1) |
+                           ((attr_obj.end & 1) << 2));
     read_unlock(&attr_obj.lock);
     return ret;
 }
@@ -60,8 +61,11 @@ static ssize_t kxo_state_store(struct device *dev,
                                size_t count)
 {
     write_lock(&attr_obj.lock);
-    sscanf(buf, "%c %c %c", &(attr_obj.display), &(attr_obj.resume),
-           &(attr_obj.end));
+    char tmp;
+    sscanf(buf, "%c", &tmp);
+    attr_obj.display = '0' ^ (tmp & 1);
+    attr_obj.resume = '0' ^ ((tmp & 2) >> 1);
+    attr_obj.end = '0' ^ ((tmp & 4) >> 2);
     write_unlock(&attr_obj.lock);
     return count;
 }
